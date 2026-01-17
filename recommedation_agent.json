@@ -1,0 +1,297 @@
+{
+  "name": "Reccomendation_Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "recommendation",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "88322b03-ec76-49a3-a378-340b5e9b7959",
+      "name": "Webhook",
+      "webhookId": "55985bb6-7d7f-4a6b-b6ef-d8447f1c6d4a"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the incoming request\nconst body = $input.first().json.body || $input.first().json;\n\n// Extract context\nconst context = {\n  destination: body.destination || body.context?.destination || \"Goa\",\n  budget: body.budget || body.context?.budget || 30000,\n  dates: body.dates || body.context?.dates,\n  preferences: body.preferences || body.context?.preferences,\n  travelers: body.travelers || body.context?.number_of_travelers || 1\n};\n\n// ALWAYS generate future dates (ignore user input for now)\nconst today = new Date();\nconst checkIn = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];\nconst checkOut = new Date(today.getTime() + 12 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];\n\nconsole.log(\"✅ Using future dates:\", checkIn, \"to\", checkOut);\n\n// Airport codes mapping\nconst airportCodes = {\n  \"goa\": { code: \"GOI\", city: \"Goa\" },\n  \"mumbai\": { code: \"BOM\", city: \"Mumbai\" },\n  \"delhi\": { code: \"DEL\", city: \"Delhi\" },\n  \"bangalore\": { code: \"BLR\", city: \"Bangalore\" },\n  \"bengaluru\": { code: \"BLR\", city: \"Bangalore\" },\n  \"kerala\": { code: \"COK\", city: \"Kochi\" },\n  \"kochi\": { code: \"COK\", city: \"Kochi\" },\n  \"cochin\": { code: \"COK\", city: \"Kochi\" },\n  \"jaipur\": { code: \"JAI\", city: \"Jaipur\" },\n  \"chennai\": { code: \"MAA\", city: \"Chennai\" },\n  \"kolkata\": { code: \"CCU\", city: \"Kolkata\" },\n  \"hyderabad\": { code: \"HYD\", city: \"Hyderabad\" },\n  \"pune\": { code: \"PNQ\", city: \"Pune\" },\n  \"ahmedabad\": { code: \"AMD\", city: \"Ahmedabad\" },\n  \"udaipur\": { code: \"UDR\", city: \"Udaipur\" }\n};\n\n// Get destination info\nconst destLower = (context.destination || \"goa\").toLowerCase();\nconst destInfo = airportCodes[destLower] || airportCodes[\"goa\"];\n\nconsole.log(\"=== CONTEXT EXTRACTED ===\");\nconsole.log(\"Destination:\", destInfo.city);\nconsole.log(\"Check-in:\", checkIn);\nconsole.log(\"Check-out:\", checkOut);\nconsole.log(\"Budget:\", context.budget);\nconsole.log(\"Travelers:\", context.travelers);\nconsole.log(\"========================\");\n\nreturn [{\n  destination: context.destination,\n  destination_city: destInfo.city,\n  destination_code: destInfo.code,\n  origin_code: \"BOM\",\n  budget: context.budget,\n  dates: `${checkIn} to ${checkOut}`,  // Store formatted dates\n  checkIn: checkIn,\n  checkOut: checkOut,\n  preferences: context.preferences,\n  travelers: context.travelers\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "41c571f5-2e98-4271-8650-45db640d6da5",
+      "name": "Extract Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Your SerpAPI Key\nconst SERPAPI_KEY = \"a9cec6ec16ed87f7c2f16c7b1d5cc26ec520d8cc1d4e9e4c814c4dab88adb028\";\n\n// FUTURE dates (FIXED!)\nconst params = {\n  engine: 'google_flights',\n  departure_id: 'BOM',\n  arrival_id: 'GOI',\n  outbound_date: '2026-02-15',  // CHANGED TO 2026!\n  return_date: '2026-02-20',    // CHANGED TO 2026!\n  type: '1',\n  currency: 'INR',\n  hl: 'en',\n  api_key: SERPAPI_KEY\n};\n\n// Build query string\nconst queryString = Object.keys(params)\n  .map(key => `${key}=${encodeURIComponent(params[key])}`)\n  .join('&');\n\nconst url = `https://serpapi.com/search?${queryString}`;\n\nconsole.log(\"=== REQUEST INFO ===\");\nconsole.log(\"URL:\", url);\nconsole.log(\"==================\");\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'GET',\n    url: url\n  });\n  \n  console.log(\"✅ SUCCESS!\");\n  \n  // Parse flights\n  const flights = [];\n  \n  if (response.best_flights) {\n    response.best_flights.forEach(flight => {\n      flights.push({\n        airline: flight.flights?.[0]?.airline || \"Unknown\",\n        price: flight.price || 0,\n        currency: \"INR\",\n        departure_time: flight.flights?.[0]?.departure_airport?.time || \"N/A\",\n        arrival_time: flight.flights?.[0]?.arrival_airport?.time || \"N/A\",\n        duration: flight.total_duration || 0,\n        stops: (flight.flights?.length - 1) || 0\n      });\n    });\n  }\n  \n  if (response.other_flights) {\n    response.other_flights.slice(0, 5).forEach(flight => {\n      flights.push({\n        airline: flight.flights?.[0]?.airline || \"Unknown\",\n        price: flight.price || 0,\n        currency: \"INR\",\n        departure_time: flight.flights?.[0]?.departure_airport?.time || \"N/A\",\n        arrival_time: flight.flights?.[0]?.arrival_airport?.time || \"N/A\",\n        duration: flight.total_duration || 0,\n        stops: (flight.flights?.length - 1) || 0\n      });\n    });\n  }\n  \n  console.log(`✅ Found ${flights.length} flights`);\n  \n  return [{\n    flights: flights,\n    search_metadata: {\n      origin: 'BOM',\n      destination: 'GOI',\n      outbound_date: '2026-02-15',\n      return_date: '2026-02-20',\n      count: flights.length\n    }\n  }];\n  \n} catch (error) {\n  console.error(\"Error:\", error.message);\n  console.error(\"Details:\", error.response?.data);\n  \n  return [{\n    flights: [],\n    search_error: error.message,\n    error_details: error.response?.data\n  }];\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "2e40fee5-2af5-4558-b39c-c81b47071c8b",
+      "name": "Search Flights"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get data from previous nodes\nconst context = $node[\"Extract Context\"].json;\nconst flightData = $input.first().json;\n\nconst SERPAPI_KEY = \"a9cec6ec16ed87f7c2f16c7b1d5cc26ec520d8cc1d4e9e4c814c4dab88adb028\";\n\n// Build hotel search parameters with fallbacks\nconst destination = context.destination_city || context.destination || 'Goa';\nconst checkIn = context.checkIn || '2026-02-15';\nconst checkOut = context.checkOut || '2026-02-20';\nconst travelers = context.travelers || 2;\n\nconsole.log(\"=== HOTEL SEARCH ===\");\nconsole.log(\"Destination:\", destination);\nconsole.log(\"Dates:\", checkIn, \"to\", checkOut);\nconsole.log(\"Travelers:\", travelers);\n\nconst params = {\n  engine: 'google_hotels',\n  q: destination,\n  check_in_date: checkIn,\n  check_out_date: checkOut,\n  adults: travelers.toString(),\n  currency: 'INR',\n  gl: 'in',\n  hl: 'en',\n  api_key: SERPAPI_KEY\n};\n\nconst queryString = Object.keys(params)\n  .map(key => `${key}=${encodeURIComponent(params[key])}`)\n  .join('&');\n\nconst url = `https://serpapi.com/search?${queryString}`;\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'GET',\n    url: url\n  });\n  \n  console.log(\"✅ Hotels found:\", response.properties?.length || 0);\n  \n  // Calculate nights\n  const checkInDate = new Date(checkIn);\n  const checkOutDate = new Date(checkOut);\n  const nights = Math.ceil((checkOutDate - checkInDate) / (1000 * 60 * 60 * 24));\n  \n  // Parse hotels from SerpAPI response\n  const hotels = [];\n  \n  if (response.properties && response.properties.length > 0) {\n    response.properties.slice(0, 10).forEach(property => {\n      // Extract price (SerpAPI provides extracted_lowest as number)\n      let pricePerNight = 0;\n      \n      if (property.rate_per_night?.extracted_lowest) {\n        pricePerNight = property.rate_per_night.extracted_lowest;\n      } else if (property.rate_per_night?.lowest) {\n        pricePerNight = parseFloat(property.rate_per_night.lowest.replace(/[^0-9.]/g, '')) || 0;\n      }\n      \n      // Only include hotels with valid prices\n      if (pricePerNight > 0) {\n        hotels.push({\n          name: property.name || \"Hotel\",\n          price_per_night: Math.round(pricePerNight),\n          total_price: Math.round(pricePerNight * nights),\n          nights: nights,\n          description: property.description || \"\",\n          rating: property.overall_rating || 0,\n          reviews: property.reviews || 0,\n          type: property.type || \"Hotel\",\n          location: destination,\n          check_in_time: property.check_in_time || \"3:00 PM\",\n          check_out_time: property.check_out_time || \"12:00 PM\"\n        });\n      }\n    });\n  }\n  \n  console.log(`✅ Parsed ${hotels.length} hotels with prices`);\n  \n  return [{\n    flights: flightData.flights || [],\n    hotels: hotels,\n    search_metadata: {\n      flight_count: flightData.flights?.length || 0,\n      hotel_count: hotels.length,\n      destination: destination,\n      nights: nights,\n      check_in: checkIn,\n      check_out: checkOut,\n      data_source: \"serpapi_real_data\"\n    }\n  }];\n  \n} catch (error) {\n  console.error(\"❌ Hotel search error:\", error.message);\n  console.error(\"Status:\", error.response?.status);\n  \n  // Return flights with empty hotels so workflow continues\n  return [{\n    flights: flightData.flights || [],\n    hotels: [],\n    search_error: error.message,\n    search_metadata: {\n      flight_count: flightData.flights?.length || 0,\n      hotel_count: 0,\n      destination: destination,\n      error: true\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "e201cdb9-f4e5-4634-9ec2-8a0646832b8a",
+      "name": "Search Hotels"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get data from previous nodes\nconst hotelData = $input.first().json;\nconst context = $node[\"Extract Context\"].json;\n\nconst SERPAPI_KEY = \"a9cec6ec16ed87f7c2f16c7b1d5cc26ec520d8cc1d4e9e4c814c4dab88adb028\";\n\nconst destination = context.destination_city || 'Goa';\nconst preferences = context.preferences || \"\";\n\nconsole.log(\"=== ACTIVITY SEARCH ===\");\nconsole.log(\"Destination:\", destination);\nconsole.log(\"Preferences:\", preferences);\n\n// Build search query based on preferences\nlet searchQuery = `things to do in ${destination}`;\nif (preferences) {\n  searchQuery = `${preferences} activities in ${destination}`;\n}\n\nconst params = {\n  engine: 'google_local',\n  q: searchQuery,\n  location: destination,\n  hl: 'en',\n  gl: 'in',\n  api_key: SERPAPI_KEY\n};\n\nconst queryString = Object.keys(params)\n  .map(key => `${key}=${encodeURIComponent(params[key])}`)\n  .join('&');\n\nconst url = `https://serpapi.com/search?${queryString}`;\n\nconsole.log(\"Search URL:\", url);\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'GET',\n    url: url\n  });\n  \n  console.log(\"✅ SerpAPI responded\");\n  console.log(\"Local results found:\", response.local_results?.length || 0);\n  \n  const activities = [];\n  \n  if (response.local_results && response.local_results.length > 0) {\n    response.local_results.slice(0, 12).forEach(place => {\n      // Categorize based on type and title\n      let category = \"Leisure\";\n      const title = (place.title || \"\").toLowerCase();\n      const type = (place.type || \"\").toLowerCase();\n      \n      if (title.includes(\"adventure\") || title.includes(\"trek\") || title.includes(\"sport\") || \n          title.includes(\"water\") || title.includes(\"diving\") || title.includes(\"safari\")) {\n        category = \"Adventure\";\n      } else if (title.includes(\"museum\") || title.includes(\"temple\") || title.includes(\"fort\") || \n                 title.includes(\"heritage\") || title.includes(\"church\") || title.includes(\"palace\")) {\n        category = \"Culture\";\n      } else if (title.includes(\"restaurant\") || title.includes(\"food\") || title.includes(\"cafe\") || \n                 title.includes(\"dining\") || title.includes(\"cuisine\")) {\n        category = \"Food\";\n      } else if (title.includes(\"beach\") || title.includes(\"park\") || title.includes(\"garden\") || \n                 title.includes(\"nature\") || title.includes(\"wildlife\") || title.includes(\"waterfall\")) {\n        category = \"Nature\";\n      } else if (title.includes(\"spa\") || title.includes(\"massage\") || title.includes(\"wellness\")) {\n        category = \"Wellness\";\n      } else if (title.includes(\"shopping\") || title.includes(\"market\") || title.includes(\"mall\")) {\n        category = \"Shopping\";\n      }\n      \n      // Estimate price based on category and rating\n      let estimatedPrice = 1000;\n      const rating = place.rating || 4.0;\n      \n      if (category === \"Adventure\") {\n        estimatedPrice = rating >= 4.5 ? 2500 : rating >= 4.0 ? 2000 : 1500;\n      } else if (category === \"Culture\") {\n        estimatedPrice = rating >= 4.5 ? 800 : rating >= 4.0 ? 600 : 400;\n      } else if (category === \"Food\") {\n        estimatedPrice = rating >= 4.5 ? 1500 : rating >= 4.0 ? 1000 : 700;\n      } else if (category === \"Nature\") {\n        estimatedPrice = rating >= 4.5 ? 1200 : rating >= 4.0 ? 800 : 500;\n      } else if (category === \"Wellness\") {\n        estimatedPrice = rating >= 4.5 ? 3000 : rating >= 4.0 ? 2000 : 1500;\n      } else {\n        estimatedPrice = rating >= 4.5 ? 1500 : rating >= 4.0 ? 1000 : 700;\n      }\n      \n      // Add some randomness (±20%)\n      estimatedPrice = Math.round(estimatedPrice * (0.8 + Math.random() * 0.4));\n      \n      activities.push({\n        name: place.title || \"Activity\",\n        category: category,\n        price: estimatedPrice,\n        duration: category === \"Adventure\" ? \"4-6 hours\" : \n                  category === \"Culture\" ? \"2-3 hours\" : \n                  category === \"Food\" ? \"2-3 hours\" : \"2-4 hours\",\n        rating: place.rating || 4.0,\n        reviews: place.reviews || Math.floor(Math.random() * 500) + 50,\n        description: place.description || place.type || \"\",\n        address: place.address || \"\",\n        location: destination\n      });\n    });\n  }\n  \n  console.log(`✅ Parsed ${activities.length} activities`);\n  \n  // If no activities found, search with different query\n  if (activities.length === 0) {\n    console.log(\"⚠️ No activities found with first search, trying alternative query\");\n    \n    const altParams = {\n      engine: 'google_local',\n      q: `tourist attractions in ${destination}`,\n      location: destination,\n      hl: 'en',\n      gl: 'in',\n      api_key: SERPAPI_KEY\n    };\n    \n    const altQueryString = Object.keys(altParams)\n      .map(key => `${key}=${encodeURIComponent(altParams[key])}`)\n      .join('&');\n    \n    const altUrl = `https://serpapi.com/search?${altQueryString}`;\n    \n    const altResponse = await this.helpers.httpRequest({\n      method: 'GET',\n      url: altUrl\n    });\n    \n    if (altResponse.local_results && altResponse.local_results.length > 0) {\n      altResponse.local_results.slice(0, 12).forEach(place => {\n        activities.push({\n          name: place.title || \"Attraction\",\n          category: \"Culture\",\n          price: 800,\n          duration: \"2-3 hours\",\n          rating: place.rating || 4.0,\n          reviews: place.reviews || 100,\n          description: place.description || place.type || \"\",\n          location: destination\n        });\n      });\n      \n      console.log(`✅ Found ${activities.length} activities from alternative search`);\n    }\n  }\n  \n  return [{\n    flights: hotelData.flights || [],\n    hotels: hotelData.hotels || [],\n    activities: activities,\n    search_metadata: {\n      ...hotelData.search_metadata,\n      activity_count: activities.length,\n      activity_source: \"serpapi_google_local\",\n      search_query: searchQuery\n    }\n  }];\n  \n} catch (error) {\n  console.error(\"❌ SerpAPI activity search error:\", error.message);\n  console.error(\"Status:\", error.response?.status);\n  console.error(\"Response:\", JSON.stringify(error.response?.data, null, 2));\n  \n  return [{\n    flights: hotelData.flights || [],\n    hotels: hotelData.hotels || [],\n    activities: [],\n    search_error: error.message,\n    error_details: error.response?.data,\n    search_metadata: {\n      ...hotelData.search_metadata,\n      activity_count: 0,\n      error: true\n    }\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "41fd7781-3055-43bf-80cd-ebeb732f4cee",
+      "name": "Get Activities"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst context = $node[\"Extract Context\"].json;\n\n// Calculate trip details\nconst checkIn = new Date(context.checkIn);\nconst checkOut = new Date(context.checkOut);\nconst nights = Math.ceil((checkOut - checkIn) / (1000 * 60 * 60 * 24));\n\n// Build detailed prompt for Gemini\nconst prompt = `You are FIRO's expert travel recommendation engine. Analyze the available options and create a personalized, budget-optimized itinerary.\n\nUSER CONTEXT:\n- Destination: ${context.destination_city}\n- Budget: ₹${context.budget}\n- Travel Dates: ${context.checkIn} to ${context.checkOut} (${nights} nights)\n- Number of Travelers: ${context.travelers}\n- Preferences: ${context.preferences || \"Not specified\"}\n\nAVAILABLE FLIGHTS (${data.flights.length} options):\n${data.flights.slice(0, 5).map((f, i) => \n  `${i+1}. ${f.airline} - ₹${f.price} - ${f.stops} stops - ${f.duration} mins`\n).join('\\n')}\n\nAVAILABLE HOTELS (per night, ${nights} nights total):\n${data.hotels.slice(0, 5).map((h, i) => \n  `${i+1}. ${h.name} - ₹${h.price_per_night}/night (₹${h.total_price} total) - Rating: ${h.rating}`\n).join('\\n')}\n\nAVAILABLE ACTIVITIES:\n${data.activities.slice(0, 6).map((a, i) => \n  `${i+1}. ${a.name} - ₹${a.price} - ${a.duration} - ${a.category}`\n).join('\\n')}\n\nTASK:\nCreate an optimal itinerary that:\n1. Stays WITHIN the budget of ₹${context.budget}\n2. Selects the best value flight (balance price and convenience)\n3. Recommends a hotel that fits budget for ${nights} nights\n4. Suggests 2-3 activities based on preferences and remaining budget\n5. Leaves a 10-15% buffer for meals and miscellaneous expenses\n\nReturn ONLY valid JSON in this EXACT format (no markdown, no code blocks, no extra text):\n{\n  \"recommended_itinerary\": {\n    \"flight\": {\n      \"airline\": \"Airline name\",\n      \"price\": 0,\n      \"reason\": \"Brief explanation why this flight\"\n    },\n    \"accommodation\": {\n      \"name\": \"Hotel name\",\n      \"nights\": ${nights},\n      \"price_per_night\": 0,\n      \"total_cost\": 0,\n      \"reason\": \"Brief explanation why this hotel\"\n    },\n    \"activities\": [\n      {\n        \"name\": \"Activity name\",\n        \"price\": 0,\n        \"category\": \"category\",\n        \"reason\": \"Why this activity\"\n      }\n    ]\n  },\n  \"cost_breakdown\": {\n    \"flights\": 0,\n    \"accommodation\": 0,\n    \"activities\": 0,\n    \"meals_buffer\": 0,\n    \"total\": 0\n  },\n  \"budget_analysis\": {\n    \"allocated_budget\": ${context.budget},\n    \"total_cost\": 0,\n    \"remaining\": 0,\n    \"utilization_percentage\": 0\n  },\n  \"why_recommended\": \"Brief 2-3 sentence explanation of the value proposition\",\n  \"travel_tips\": [\n    \"Tip 1\",\n    \"Tip 2\"\n  ]\n}`;\n\nreturn [{\n  prompt: prompt,\n  original_data: data,\n  context: context\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1024,
+        240
+      ],
+      "id": "02b17645-0cd3-484c-aae5-1e79160bdaf1",
+      "name": "Recommendation Prompt"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        256
+      ],
+      "id": "5c427a2e-124e-44e5-a266-2c95ae26fd70",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "xYNTOALO6TizD5Gz",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get Gemini response\nconst geminiResponse = $input.first().json;\n\nconsole.log(\"=== PARSING GEMINI RESPONSE ===\");\n\n// Extract text from Gemini's response structure\nconst responseText = geminiResponse.content?.parts?.[0]?.text || geminiResponse.text || \"\";\n\nconsole.log(\"Raw response length:\", responseText.length);\nconsole.log(\"First 200 chars:\", responseText.substring(0, 200));\n\n// Extract JSON using regex (handles markdown code blocks)\nconst jsonMatch = responseText.match(/\\{[\\s\\S]*\\}/);\n\nif (jsonMatch) {\n  try {\n    // Clean the JSON string\n    let cleanJson = jsonMatch[0];\n    \n    // Remove common markdown artifacts\n    cleanJson = cleanJson\n      .replace(/```json\\n/g, '')\n      .replace(/```\\n/g, '')\n      .replace(/```/g, '')\n      .replace(/\\\\n/g, ' ')\n      .replace(/\\\\\"/g, '\"')\n      .trim();\n    \n    const recommendations = JSON.parse(cleanJson);\n    \n    console.log(\"✅ Successfully parsed recommendations\");\n    console.log(\"Flight recommended:\", recommendations.recommended_itinerary?.flight?.airline);\n    console.log(\"Hotel recommended:\", recommendations.recommended_itinerary?.accommodation?.name);\n    console.log(\"Activities count:\", recommendations.recommended_itinerary?.activities?.length || 0);\n    console.log(\"Total cost:\", recommendations.cost_breakdown?.total);\n    \n    // Add metadata\n    recommendations.generated_at = new Date().toISOString();\n    recommendations.agent = \"recommendation_agent\";\n    recommendations.data_source = \"serpapi_real_data\";\n    recommendations.model_used = \"gemini-1.5-pro\";\n    recommendations.api_sources = {\n      flights: \"Google Flights via SerpAPI\",\n      hotels: \"Google Hotels via SerpAPI\",\n      activities: \"Google Local via SerpAPI\"\n    };\n    \n    return [recommendations];\n    \n  } catch (parseError) {\n    console.error(\"❌ JSON parse error:\", parseError.message);\n    \n    return [{\n      parse_failed: true,\n      error: parseError.message,\n      raw_response: responseText.substring(0, 1000)\n    }];\n  }\n} else {\n  console.error(\"❌ No JSON found in Gemini response\");\n  \n  return [{\n    parse_failed: true,\n    error: \"No JSON found in response\",\n    raw_response: responseText.substring(0, 1000)\n  }];\n}"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        304
+      ],
+      "id": "4f3a8f3c-ea63-4a65-aada-403ec38e9f4e",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Skip if parsing failed\nif (data.parse_failed) {\n  return [data];\n}\n\n// Calculate value metrics\nconst budget = data.budget_analysis?.allocated_budget || 0;\nconst totalCost = data.cost_breakdown?.total || 0;\nconst savings = budget - totalCost;\nconst savingsPercent = budget > 0 ? (savings / budget) * 100 : 0;\n\n// Calculate value score (0-100)\nlet valueScore = 50; // Base\n\n// Scoring logic\nif (savings > 0) valueScore += 20;\nif (savingsPercent > 10) valueScore += 15;\nif (savingsPercent > 20) valueScore += 10;\n\nconst activityCount = data.recommended_itinerary?.activities?.length || 0;\nif (activityCount >= 2) valueScore += 10;\nif (activityCount >= 3) valueScore += 5;\n\nvalueScore = Math.min(100, valueScore);\n\n// Add to response\ndata.value_metrics = {\n  estimated_savings: Math.round(savings),\n  savings_percentage: savingsPercent.toFixed(1),\n  value_score: valueScore,\n  budget_utilization: ((totalCost / budget) * 100).toFixed(1) + \"%\",\n  market_comparison: savingsPercent > 15 ? \"Excellent value\" : \n                     savingsPercent > 5 ? \"Good value\" : \"Fair value\"\n};\n\nconsole.log(\"✅ Value metrics calculated:\", data.value_metrics);\n\nreturn [data];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        288
+      ],
+      "id": "f9a63429-9ca2-419a-934f-4a01253c1382",
+      "name": "Value Metrics"
+    },
+    {
+      "parameters": {
+        "jsCode": "const recommendations = $input.first().json;\n\n// Create final response\nconst response = {\n  status: recommendations.parse_failed ? \"partial_success\" : \"success\",\n  agent: \"recommendation_agent\",\n  data_source: \"real_time_serpapi\",\n  timestamp: new Date().toISOString(),\n  recommendations: recommendations,\n  summary: {\n    destination: recommendations.recommended_itinerary?.accommodation?.name?.split(' ').pop() || \"destination\",\n    total_cost: recommendations.cost_breakdown?.total || 0,\n    savings: recommendations.value_metrics?.estimated_savings || 0,\n    value_score: recommendations.value_metrics?.value_score || 0,\n    activities_included: recommendations.recommended_itinerary?.activities?.length || 0\n  },\n  next_action: \"review_and_confirm\"\n};\n\nconsole.log(\"✅ Final response formatted\");\n\nreturn [response];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -176,
+        192
+      ],
+      "id": "70fee6b2-98d4-4905-8572-c1d4765c37f1",
+      "name": "Final Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -272,
+        48
+      ],
+      "id": "19eb4779-9ca3-4732-b1c0-9a70c9bba9b8",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Context": {
+      "main": [
+        [
+          {
+            "node": "Search Flights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Flights": {
+      "main": [
+        [
+          {
+            "node": "Search Hotels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Hotels": {
+      "main": [
+        [
+          {
+            "node": "Get Activities",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Activities": {
+      "main": [
+        [
+          {
+            "node": "Recommendation Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recommendation Prompt": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Value Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Value Metrics": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "c4fec9d2-a4cc-4ba3-9451-82f6e83e5c5a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "33a978a93b30ab184ae6fb62e19b805fe0483c2d8a426ea771307fe443603522"
+  },
+  "id": "Le8DvB1U3PUA7pe4",
+  "tags": []
+}
